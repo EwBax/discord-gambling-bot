@@ -71,17 +71,17 @@ func (d Deck) Shuffle() {
 
 }
 
-func (d Deck) DealCard() Card {
+func (d *Deck) DealCard() Card {
 
-	if len(d) <= 0 {
+	if len(*d) <= 0 {
 		panic("Deck has no cards.")
 	}
 
 	// getting the last card
-	card := d[len(d)-1]
+	card := (*d)[len(*d)-1]
 
 	// slicing off the last card
-	d = d[:len(d)-1]
+	*d = (*d)[:len(*d)-1]
 
 	return card
 
@@ -193,7 +193,7 @@ func MessageRecieved(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if strings.ToLower(m.Content) == "!blackjack" {
 			GAME_ON = true
 			BlackjackGame = NewBlackjack(m.Author.Username)
-			s.ChannelMessageSend(m.ChannelID, "Starting a new game of blackjack with "+m.Author.Username+"!\n"+BlackjackGame.CardDeck.String())
+			s.ChannelMessageSend(m.ChannelID, "Starting a new game of blackjack with "+m.Author.Username+"!")
 		}
 
 	}
@@ -202,7 +202,7 @@ func MessageRecieved(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 func PromptPlayer(s *discordgo.Session, m *discordgo.MessageCreate) {
 
-	message := BlackjackGame.PlayerName + " your hand is: "
+	message := BlackjackGame.PlayerName + " your hand is:\n"
 
 	// Making a message with the player's hand, adding each card to the message
 	for i, card := range BlackjackGame.PlayerHand {
