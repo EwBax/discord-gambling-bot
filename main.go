@@ -102,9 +102,9 @@ func (h Hand) Value() int {
 		}
 	}
 
-	// If there are more aces and using one as a 10 would not cause the hand to bust, increase value by 9
-	for numAces < 0 && value+9 <= 21 {
-		value += 9
+	// If there are more aces and using one as a 10 would not cause the hand to bust, increase value by 10
+	for numAces > 0 && value+10 <= 21 {
+		value += 10
 		numAces--
 	}
 
@@ -215,7 +215,7 @@ func MessageRecieved(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if GAME_ON {
+	if GAME_ON && m.Author.Username == BlackjackGame.PlayerName {
 
 		if BlackjackGame.IsPlayersTurn {
 			if strings.ToLower(m.Content) == "!hit" {
