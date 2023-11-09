@@ -166,7 +166,8 @@ func (b *Blackjack) PlayerBust(s *discordgo.Session, m *discordgo.MessageCreate)
 
 	message := (*b).GetPlayerHand()
 	s.ChannelMessageSend(m.ChannelID, message)
-	s.ChannelMessageSend(m.ChannelID, "You bust! The dealer wins.")
+	s.ChannelMessageSend(m.ChannelID, "Uh oh, you bust!")
+	b.DisplayResults(s, m)
 	GameOver(s, m)
 
 }
@@ -190,7 +191,7 @@ func (b *Blackjack) DisplayResults(s *discordgo.Session, m *discordgo.MessageCre
 	message += (*b).GetDealerHand() + "\n\n"
 
 	// Determining the winner. Dealer wins if their hand is >= player hand
-	if (*b).DealerHand.Value() >= (*b).PlayerHand.Value() {
+	if (*b).PlayerHand.Value() > 21 || (*b).DealerHand.Value() >= (*b).PlayerHand.Value() {
 		s.ChannelMessageSend(m.ChannelID, message+"The dealer wins.")
 		// If the player loses, they lose their wager. so we set it to negative here so when it is updated in game over,
 		// the wager is subtracted

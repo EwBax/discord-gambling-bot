@@ -73,3 +73,12 @@ func (dba *DBA) CreatePlayer(username string) Player {
 	return newPlayer
 
 }
+
+func (dba *DBA) UpdateChipBalance(player Player) {
+
+	_, err := (*dba).conn.Exec(fmt.Sprintf("UPDATE player SET chip_total='%d' WHERE id='%d'", player.Chips, player.ID))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
