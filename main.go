@@ -124,7 +124,7 @@ func GameOver(s *discordgo.Session, m *discordgo.MessageCreate) {
 		message += fmt.Sprintf(" You've gained %d chips!", BlackjackGame.Wager)
 	} else {
 		// If the wager brings them to zero, we take pity and keep them at one chip.
-		if BlackjackGame.Player.Chips-BlackjackGame.Wager <= 0 {
+		if BlackjackGame.Player.Chips+BlackjackGame.Wager <= 0 {
 			message += " Uh oh, looks like you lost the last of your chips! I'll put your total back up to 1, so you can keep playing."
 			// They will not be able to wager more chips than they have, so if the wager takes them to zero, we can just add one to the wager to keep them at 1 chip.
 			BlackjackGame.Wager += 1
