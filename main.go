@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -12,25 +11,19 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Global variable for database connection and connection string
-var db *sql.DB
-
-const db_path string = "./db/casino.db"
-
-// Whether the bot is currently playing a game with someone
+// GAME_ON Whether the bot is currently playing a game with someone
 var GAME_ON = false
 
-// Global variable for a game of blackjack
+// BlackjackGame Global variable for a game of blackjack
 var BlackjackGame Blackjack
+
+// The database adapter
+var dba DBA
 
 func main() {
 
-	// Opening connection to database
-	// db, err := sql.Open("sqlite3", db_path)
-
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	// Opening the database connection
+	dba.OpenConnection(DbPath)
 
 	// Creating a new Discord session using the bot token
 	sess, err := discordgo.New("Bot MTE1NzAzOTk4NTgxNjUxNDcwMQ.GOVQIL.KyV-XFZB0f1ylsYC0PQqOwFH5yw5vwgwWVupBM")
@@ -39,7 +32,7 @@ func main() {
 	}
 
 	// Handles a message being created in discord
-	sess.AddHandler(MessageRecieved)
+	sess.AddHandler(MessageReceived)
 
 	// Sets the intent for the session
 	sess.Identify.Intents = discordgo.IntentsAllWithoutPrivileged
@@ -60,24 +53,27 @@ func main() {
 	<-sc
 }
 
-func MessageRecieved(s *discordgo.Session, m *discordgo.MessageCreate) {
+func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// Checks that the author was a user other than the bot
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
 
-	if GAME_ON && m.Author.Username == BlackjackGame.PlayerName {
+	if GAME_ON {
 
-		if BlackjackGame.IsPlayersTurn {
-			if strings.ToLower(m.Content) == "!hit" {
-				s.ChannelMessageSend(m.ChannelID, "You chose to hit!")
-				BlackjackGame.Hit(&BlackjackGame.PlayerHand)
-				BlackjackGame.RunPlayerTurn(s, m)
-			} else if strings.ToLower(m.Content) == "!hold" {
-				s.ChannelMessageSend(m.ChannelID, "You chose to hold!")
-				BlackjackGame.IsPlayersTurn = false
-				BlackjackGame.RunDealerTurn(s, m)
+		if m.Author.Username == BlackjackGame.Player.Username {
+
+			if BlackjackGame.IsPlayersTurn {
+				if strings.ToLower(m.Content) == "!hit" {
+					s.ChannelMessageSend(m.ChannelID, "You chose to hit!")
+					BlackjackGame.Hit(&BlackjackGame.PlayerHand)
+					BlackjackGame.RunPlayerTurn(s, m)
+				} else if strings.ToLower(m.Content) == "!hold" {
+					s.ChannelMessageSend(m.ChannelID, "You chose to hold!")
+					BlackjackGame.IsPlayersTurn = false
+					BlackjackGame.RunDealerTurn(s, m)
+				}
 			}
 		}
 
@@ -86,7 +82,8 @@ func MessageRecieved(s *discordgo.Session, m *discordgo.MessageCreate) {
 		// If a user enters !blackjack we begin the game
 		if strings.ToLower(m.Content) == "!blackjack" {
 			GAME_ON = true
-			BlackjackGame = NewBlackjack(m.Author.Username)
+			player := dba.FindPlayer(m.Author.Username)
+			BlackjackGame = NewBlackjack(player)
 			s.ChannelMessageSend(m.ChannelID, "Starting a new game of blackjack with "+m.Author.Username+"!")
 			BlackjackGame.RunPlayerTurn(s, m)
 		}
@@ -99,10 +96,3 @@ func GameOver(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, "Game over!")
 	GAME_ON = false
 }
-
-// func FindPlayer(username string) bool {
-
-// 	row := db.QueryRow("SELECT * FROM Player WHERE username=?;", username)
-
-// 	return row
-// }

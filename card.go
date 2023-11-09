@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Represents a single playing card
+// Card Represents a single playing card
 type Card struct {
 	Rank string
 	Suit string
@@ -21,10 +21,10 @@ func (c Card) String() string {
 // Ranks for a typical deck of playing cards, mapped to their values
 var ranks = map[string]int{"Ace": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5, "Six": 6, "Seven": 7, "Eight": 8, "Nine": 9, "Ten": 10, "Jack": 10, "Queen": 10, "King": 10}
 
-// Represents a deck of playing cards
+// Deck Represents a deck of playing cards
 type Deck []Card
 
-// Creates and returns a standard deck of 52 playing cards
+// NewStandardDeck Creates and returns a standard deck of 52 playing cards
 func NewStandardDeck() Deck {
 	var deck Deck
 
@@ -42,13 +42,13 @@ func NewStandardDeck() Deck {
 }
 
 // Implements the stringer function for a deck, listing out the contents of the deck on a new line.
-func (d Deck) String() string {
+func (d *Deck) String() string {
 
 	message := ""
 
-	for i, c := range d {
+	for i, c := range *d {
 		message += c.String()
-		if i < len(d)-1 {
+		if i < len(*d)-1 {
 			message += ",\n"
 		}
 	}
@@ -57,19 +57,19 @@ func (d Deck) String() string {
 
 }
 
-// Shuffles a deck of cards
-func (d Deck) Shuffle() {
+// Shuffle Shuffles a deck of cards
+func (d *Deck) Shuffle() {
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	for i := range d {
-		j := rng.Intn(len(d))
-		d[i], d[j] = d[j], d[i]
+	for i := range *d {
+		j := rng.Intn(len(*d))
+		(*d)[i], (*d)[j] = (*d)[j], (*d)[i]
 	}
 
 }
 
-// Returns the top card on the deck (last in the slice) and removes it from the deck.
+// DealCard Returns the top card on the deck (last in the slice) and removes it from the deck.
 func (d *Deck) DealCard() Card {
 
 	if len(*d) <= 0 {
