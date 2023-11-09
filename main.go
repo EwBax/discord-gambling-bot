@@ -62,7 +62,10 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if GAME_ON {
+	if strings.ToLower(m.Content) == "!balance" {
+		chipTotal := dba.GetChipTotal(m.Author.Username)
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s, your chip total is: %d", m.Author.Username, chipTotal))
+	} else if GAME_ON {
 
 		if m.Author.Username == BlackjackGame.Player.Username {
 
@@ -81,7 +84,7 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	} else {
 
-		blackjackRegex := regexp.MustCompile(`!blackjack \d+`)
+		blackjackRegex := regexp.MustCompile(`!blackjack -?\d+`)
 
 		// If a user enters !blackjack and a bet amount, we begin the game
 		if blackjackRegex.MatchString(strings.ToLower(m.Content)) {
@@ -90,10 +93,14 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 			wager, _ := strconv.Atoi(strings.Split(m.Content, " ")[1])
 			player := dba.FindPlayer(m.Author.Username)
 
+			// Checking for valid wager
 			if player.Chips < wager {
 				s.ChannelMessageSend(m.ChannelID,
 					fmt.Sprintf("You do not have enough chips to make that wager! Your chip balance is %d.", player.Chips))
 				// We return early here because we don't want to start the game if the wager is not valid
+				return
+			} else if wager <= 0 {
+				s.ChannelMessageSend(m.ChannelID, "Your wager must be 1 or higher.")
 				return
 			}
 

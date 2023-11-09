@@ -82,3 +82,19 @@ func (dba *DBA) UpdateChipBalance(player Player) {
 	}
 
 }
+
+func (dba *DBA) GetChipTotal(username string) int {
+
+	row := dba.conn.QueryRow(fmt.Sprintf("SELECT chip_total FROM player WHERE username='%s'", username))
+
+	var chipTotal int
+	err := row.Scan(&chipTotal)
+
+	// If no rows are returned the player has to be created
+	if errors.Is(err, sql.ErrNoRows) {
+		chipTotal = dba.CreatePlayer(username).Chips
+	}
+
+	return chipTotal
+
+}
