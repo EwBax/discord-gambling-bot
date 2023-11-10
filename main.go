@@ -124,26 +124,35 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 func GameOver(s *discordgo.Session, m *discordgo.MessageCreate) {
 	message := "Game Over!"
 
-	if BlackjackGame.Wager > 0 {
-		// If the wager is positive they are gaining chips
-		message += fmt.Sprintf(" You've gained %d chips!", BlackjackGame.Wager)
+	// If it was a draw
+	if BlackjackGame.Wager == 0 {
+		message += "Your wager was returned."
 	} else {
-		// If the wager brings them to zero, we take pity and keep them at one chip.
-		if BlackjackGame.Player.Chips+BlackjackGame.Wager <= 0 {
-			message += " Uh oh, looks like you lost the last of your chips! I'll put your total back up to 1, so you can keep playing."
-			// They will not be able to wager more chips than they have, so if the wager takes them to zero, we can just add one to the wager to keep them at 1 chip.
-			BlackjackGame.Wager += 1
+
+		if BlackjackGame.Wager > 0 {
+
+			// If the wager is positive they are gaining chips
+			message += fmt.Sprintf(" You've gained %d chips!", BlackjackGame.Wager)
+
 		} else {
-			// wager *-1, so we get the positive number of chips lost
-			message += fmt.Sprintf(" You lost %d chips.", BlackjackGame.Wager*-1)
+			// Negative wager, so they lost
+			// If the wager brings them to zero, we take pity and keep them at one chip.
+			if BlackjackGame.Player.Chips+BlackjackGame.Wager <= 0 {
+				message += " Uh oh, looks like you lost the last of your chips! I'll put your total back up to 1, so you can keep playing."
+				// They will not be able to wager more chips than they have, so if the wager takes them to zero, we can just add one to the wager to keep them at 1 chip.
+				BlackjackGame.Wager += 1
+			} else {
+				// wager *-1, so we get the positive number of chips lost
+				message += fmt.Sprintf(" You lost %d chips.", BlackjackGame.Wager*-1)
+			}
 		}
+
+		// Updating the chip balance for the player
+		BlackjackGame.Player.Chips += BlackjackGame.Wager
+		dba.UpdateChipBalance(BlackjackGame.Player)
+
+		message += fmt.Sprintf("\nYour new chip total is: %d", BlackjackGame.Player.Chips)
 	}
-
-	// Updating the chip balance for the player
-	BlackjackGame.Player.Chips += BlackjackGame.Wager
-	dba.UpdateChipBalance(BlackjackGame.Player)
-
-	message += fmt.Sprintf("\nYour new chip total is: %d", BlackjackGame.Player.Chips)
 
 	s.ChannelMessageSend(m.ChannelID, message)
 	GAME_ON = false
