@@ -110,6 +110,11 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Starting a new game of blackjack with %s, wagering %d chips!", m.Author.Username, wager))
 			BlackjackGame.RunPlayerTurn(s, m)
 
+		} else if strings.ToLower(m.Content) == "!blackjack" {
+			// If they entered !blackjack but no wager
+			s.ChannelMessageSend(m.ChannelID, "You must place a wager of at least one chip to play!"+
+				" Enter \"!blackjack <amount>\" to wager.\nFor example, \"!blackjack 1\" starts a new game wagering 1 "+
+				"chip.\nEnter \"!balance\" to see how many chips you have.")
 		}
 
 	}
