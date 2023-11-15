@@ -74,8 +74,8 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 					s.ChannelMessageSend(m.ChannelID, "You chose to hit!")
 					BlackjackGame.Hit(&BlackjackGame.PlayerHand)
 					BlackjackGame.RunPlayerTurn(s, m)
-				} else if strings.ToLower(m.Content) == "!hold" {
-					s.ChannelMessageSend(m.ChannelID, "You chose to hold!")
+				} else if strings.ToLower(m.Content) == "!stand" {
+					s.ChannelMessageSend(m.ChannelID, "You chose to stand!")
 					BlackjackGame.IsPlayersTurn = false
 					BlackjackGame.RunDealerTurn(s, m)
 				}
@@ -108,6 +108,7 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 			BlackjackGame = NewBlackjack(player, wager)
 			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Starting a new game of blackjack with %s, wagering %d chips!", m.Author.Username, wager))
+			s.ChannelMessageSend(m.ChannelID, BlackjackGame.GetDealerHand())
 			BlackjackGame.RunPlayerTurn(s, m)
 
 		} else if strings.ToLower(m.Content) == "!blackjack" {

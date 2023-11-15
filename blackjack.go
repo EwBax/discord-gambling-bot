@@ -34,6 +34,19 @@ func (h BlackjackHand) Value() int {
 
 }
 
+// HasAce Returns whether the hand contains an Ace.
+// TODO refactor this to find a soft 17
+func (h BlackjackHand) HasAce() bool {
+
+	for i := range h {
+		if h[i].Rank == "Ace" {
+			return true
+		}
+	}
+	return false
+
+}
+
 // Implementing the stringer interface for blackjackhand
 func (h BlackjackHand) String() string {
 
@@ -89,17 +102,27 @@ func NewBlackjack(player Player, wager int) Blackjack {
 // GetPlayerHand Returns a message with the player's hand
 func (b *Blackjack) GetPlayerHand() string {
 
-	message := fmt.Sprintf("%s your hand is:\n\n%s", (*b).Player.Username, (*b).PlayerHand)
+	message := fmt.Sprintf("%s, your hand is:\n\n%s", (*b).Player.Username, (*b).PlayerHand)
 
 	return message
 }
 
-// GetDealerHand Returns a message with the dealer's hand
-func (b *Blackjack) GetDealerHand() string {
+// GetFullDealerHand Returns a message with the dealer's full hand
+func (b *Blackjack) GetFullDealerHand() string {
 
 	message := fmt.Sprintf("The dealer's hand is:\n\n%s", (*b).DealerHand)
 
 	return message
+}
+
+// GetDealerHand Returns a message with the dealer's first card revealed, and the second card hidden. Only used at the start of the game, so player can see dealer's hand
+// One card is hidden for the dealer in blackjack rules
+func (b *Blackjack) GetDealerHand() string {
+
+	message := fmt.Sprintf("The dealer's hand is:\n\n%s\n[Hidden Card]", (*b).DealerHand[0])
+
+	return message
+
 }
 
 // Hit deals a new card to the hand that is passed
@@ -110,7 +133,7 @@ func (b *Blackjack) Hit(h *BlackjackHand) {
 // RunPlayerTurn Handles the next Player turn in the game
 func (b *Blackjack) RunPlayerTurn(s *discordgo.Session, m *discordgo.MessageCreate) {
 
-	// If the player's hand is under 21, prompt them to hit or hold
+	// If the player's hand is under 21, prompt them to hit or stand
 	if (*b).PlayerHand.Value() < 21 {
 		(*b).PromptPlayer(s, m)
 		return
@@ -123,7 +146,7 @@ func (b *Blackjack) RunPlayerTurn(s *discordgo.Session, m *discordgo.MessageCrea
 		(*b).RunDealerTurn(s, m)
 	}
 
-	// To get to this point the player either busts or holds
+	// To get to this point the player either busts or stands
 	(*b).IsPlayersTurn = false
 }
 
@@ -131,33 +154,29 @@ func (b *Blackjack) RunPlayerTurn(s *discordgo.Session, m *discordgo.MessageCrea
 func (b *Blackjack) RunDealerTurn(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	s.ChannelMessageSend(m.ChannelID, "It is the dealer's turn!")
-	s.ChannelMessageSend(m.ChannelID, (*b).GetDealerHand())
 
-	// Dealer hits on 16 or less
-	for (*b).DealerHand.Value() < 17 {
+	// This is the logic for casino blackjack where the Dealer is playing against more than one player
+	// The dealer hits on anything less than 17, and also hits on a soft 17 (has an ace)
+	for (*b).DealerHand.Value() <= 17 || ((*b).DealerHand.Value() == 17 && (*b).DealerHand.HasAce()) {
 		(*b).Hit(&(*b).DealerHand)
-		s.ChannelMessageSend(m.ChannelID, "The dealer hits!\n"+(*b).GetDealerHand())
 	}
 
-	if (*b).DealerHand.Value() > 21 {
-		s.ChannelMessageSend(m.ChannelID, "\nThe dealer busts, you win!\n")
-	} else {
-		s.ChannelMessageSend(m.ChannelID, "\nThe dealer holds!")
+	//// This is the logic for 1v1 blackjack. The Dealer can see the player's hand and will continue to hit until they either beat them or bust
+	//for (*b).DealerHand.Value() <= (*b).PlayerHand.Value() && (*b).DealerHand.Value() < 21 {
+	//	(*b).Hit(&(*b).DealerHand)
+	//}
 
-		// When the dealer's turn is over, display the results
-		(*b).DisplayResults(s, m)
-	}
-
+	(*b).DisplayResults(s, m)
 	GameOver(s, m)
 
 }
 
-// PromptPlayer Prompts the player by displaying their hand then asking to hit or hold.
+// PromptPlayer Prompts the player by displaying their hand then asking to hit or stand.
 func (b *Blackjack) PromptPlayer(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	message := b.GetPlayerHand()
 	s.ChannelMessageSend(m.ChannelID, message)
-	s.ChannelMessageSend(m.ChannelID, "Enter !hit to hit, !hold to hold.")
+	s.ChannelMessageSend(m.ChannelID, "Enter !hit to hit, !stand to stand.")
 
 }
 
@@ -172,11 +191,11 @@ func (b *Blackjack) PlayerBust(s *discordgo.Session, m *discordgo.MessageCreate)
 
 }
 
-// PlayerHold Displays the player's hand and that they have chosen to hold.
-func (b *Blackjack) PlayerHold(s *discordgo.Session, m *discordgo.MessageCreate) {
+// PlayerStand Displays the player's hand and that they have chosen to stand.
+func (b *Blackjack) PlayerStand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	message := (*b).GetPlayerHand()
-	message += "\nYou hold! It is now the dealer's turn."
+	message += "\nYou stand! It is now the dealer's turn."
 	s.ChannelMessageSend(m.ChannelID, message)
 
 }
@@ -188,7 +207,7 @@ func (b *Blackjack) DisplayResults(s *discordgo.Session, m *discordgo.MessageCre
 
 	// Displays both hands
 	message += (*b).GetPlayerHand() + "\n\n"
-	message += (*b).GetDealerHand() + "\n\n"
+	message += (*b).GetFullDealerHand() + "\n\n"
 
 	// Determining the winner. Dealer wins if their hand is >= player hand
 	if (*b).PlayerHand.Value() > 21 || (*b).DealerHand.Value() > (*b).PlayerHand.Value() {
@@ -197,7 +216,7 @@ func (b *Blackjack) DisplayResults(s *discordgo.Session, m *discordgo.MessageCre
 		// the wager is subtracted
 		(*b).Wager *= -1
 	} else if (*b).DealerHand.Value() == (*b).PlayerHand.Value() {
-		// Draw, set wager to 0 so they get their chips back
+		// Draw, set wager to 0, so they get their chips back
 		s.ChannelMessageSend(m.ChannelID, message+"It's a draw!")
 		(*b).Wager = 0
 	} else {
