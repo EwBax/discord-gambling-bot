@@ -24,11 +24,13 @@ var dba DBA
 
 func main() {
 
+	config := GetConfig()
+
 	// Opening the database connection
 	dba.OpenConnection(DbPath)
 
 	// Creating a new Discord session using the bot token
-	sess, err := discordgo.New("Bot MTE1NzAzOTk4NTgxNjUxNDcwMQ.GOVQIL.KyV-XFZB0f1ylsYC0PQqOwFH5yw5vwgwWVupBM")
+	sess, err := discordgo.New(config.Token)
 	if err != nil {
 		log.Fatal(err)
 	}
