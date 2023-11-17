@@ -209,17 +209,23 @@ func (b *Blackjack) DisplayResults(s *discordgo.Session, m *discordgo.MessageCre
 	message += (*b).GetPlayerHand() + "\n\n"
 	message += (*b).GetFullDealerHand() + "\n\n"
 
-	// Determining the winner. Dealer wins if their hand is >= player hand
-	if (*b).PlayerHand.Value() > 21 || (*b).DealerHand.Value() > (*b).PlayerHand.Value() {
+	// Determining the winner. Dealer wins if their hand is > player hand, and not above 21
+	if (*b).PlayerHand.Value() > 21 || ((*b).DealerHand.Value() > (*b).PlayerHand.Value() && (*b).DealerHand.Value() <= 21) {
 		s.ChannelMessageSend(m.ChannelID, message+"The dealer wins.")
 		// If the player loses, they lose their wager. so we set it to negative here so when it is updated in game over,
 		// the wager is subtracted
 		(*b).Wager *= -1
+		// Updating the player's losses stat
+		(*b).Player.Losses++
 	} else if (*b).DealerHand.Value() == (*b).PlayerHand.Value() {
 		// Draw, set wager to 0, so they get their chips back
 		s.ChannelMessageSend(m.ChannelID, message+"It's a draw!")
 		(*b).Wager = 0
+		// Updating the player's ties stat
+		(*b).Player.Ties++
 	} else {
 		s.ChannelMessageSend(m.ChannelID, message+(*b).Player.Username+" wins!")
+		// Updating the player's wins stat
+		(*b).Player.Wins++
 	}
 }

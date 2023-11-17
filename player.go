@@ -7,4 +7,7 @@ type Player struct {
 	ID       int
 	Username string
 	Chips    int
+	Wins     int
+	Ties     int
+	Losses   int
 }

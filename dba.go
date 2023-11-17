@@ -40,7 +40,7 @@ func (dba *DBA) FindPlayer(username string) Player {
 
 	// Creating the player and scanning the info into it
 	var player Player
-	err := row.Scan(&player.ID, &player.Username, &player.Chips)
+	err := row.Scan(&player.ID, &player.Username, &player.Chips, &player.Wins, &player.Ties, &player.Losses)
 
 	// If no rows are returned the player has to be created
 	if errors.Is(err, sql.ErrNoRows) {
@@ -54,8 +54,9 @@ func (dba *DBA) FindPlayer(username string) Player {
 // CreatePlayer Creates a new entry in the database for the player, and returns
 func (dba *DBA) CreatePlayer(username string) Player {
 
-	// Creating the new player object
-	newPlayer := Player{0, username, StartingChips}
+	// Creating the new player object. All not included parameter names are integers and will be set to their zero value (which is 0)
+	newPlayer := Player{Username: username, Chips: StartingChips}
+	// Not inserting the wins, losses, or ties because those default to 0 in the database
 	res, err := dba.conn.Exec(fmt.Sprintf("INSERT INTO player VALUES(NULL,'%s','%d');", newPlayer.Username, newPlayer.Chips))
 	if err != nil {
 		log.Fatal(err)
@@ -74,18 +75,27 @@ func (dba *DBA) CreatePlayer(username string) Player {
 
 }
 
-func (dba *DBA) UpdateChipBalance(player Player) {
+// UpdatePlayer updates the entry for the player that is passed to the player's new stats (chip total, wins, losses)
+func (dba *DBA) UpdatePlayer(player Player) {
 
-	_, err := (*dba).conn.Exec(fmt.Sprintf("UPDATE player SET chip_total='%d' WHERE id='%d'", player.Chips, player.ID))
+	_, err := (*dba).conn.Exec(
+		fmt.Sprintf("UPDATE player SET chips='%d', wins='%d', ties='%d', losses='%d' WHERE id='%d'",
+			player.Chips,
+			player.Wins,
+			player.Ties,
+			player.Losses,
+			player.ID))
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
 }
 
+// GetChipTotal queries the database for a player using username, and returns their chip total.
 func (dba *DBA) GetChipTotal(username string) int {
 
-	row := dba.conn.QueryRow(fmt.Sprintf("SELECT chip_total FROM player WHERE username='%s'", username))
+	row := dba.conn.QueryRow(fmt.Sprintf("SELECT chips FROM player WHERE username='%s'", username))
 
 	var chipTotal int
 	err := row.Scan(&chipTotal)
@@ -96,5 +106,51 @@ func (dba *DBA) GetChipTotal(username string) int {
 	}
 
 	return chipTotal
+
+}
+
+const (
+	Wins  = 0
+	Chips = 1
+)
+
+// GetLeaderboard queries the database for all players ordered by wins descending.
+// leaderboardType = 0 for sorting by wins, 1 for sorting by chips.
+func (dba *DBA) GetLeaderboard(leaderboardType int) []Player {
+
+	var temp string
+
+	switch leaderboardType {
+	case Wins:
+		temp = "wins"
+	case Chips:
+		temp = "chips"
+	default:
+		panic("Invalid leaderboard_type")
+	}
+
+	// Querying the database
+	rows, err := dba.conn.Query(fmt.Sprintf("SELECT * FROM player ORDER BY player.%s DESC;", temp))
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var leaderboard []Player
+	player := Player{}
+
+	// appending each row to the leaderboard slice
+	for rows.Next() {
+
+		err = rows.Scan(&player.ID, &player.Username, &player.Chips, &player.Wins, &player.Ties, &player.Losses)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		leaderboard = append(leaderboard, player)
+	}
+
+	return leaderboard
 
 }

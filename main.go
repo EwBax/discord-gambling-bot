@@ -13,8 +13,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// GAME_ON Whether the bot is currently playing a game with someone
-var GAME_ON = false
+// GameOn Whether the bot is currently playing a game with someone
+var GameOn = false
 
 // BlackjackGame Global variable for a game of blackjack
 var BlackjackGame Blackjack
@@ -65,7 +65,15 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if strings.ToLower(m.Content) == "!balance" {
 		chipTotal := dba.GetChipTotal(m.Author.Username)
 		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s, your chip total is: %d", m.Author.Username, chipTotal))
-	} else if GAME_ON {
+	} else if strings.ToLower(m.Content) == "!leaderboard wins" {
+		player := dba.FindPlayer(m.Author.Username)
+		DisplayLeaderboard(player, "wins", s, m)
+	} else if strings.ToLower(m.Content) == "!leaderboard chips" {
+		player := dba.FindPlayer(m.Author.Username)
+		DisplayLeaderboard(player, "chips", s, m)
+	} else if strings.ToLower(m.Content) == "!leaderboard" {
+		s.ChannelMessageSend(m.ChannelID, "You can do !leaderboard wins or !leaderboard chips for a leaderboard sorted for each statistic!")
+	} else if GameOn {
 
 		if m.Author.Username == BlackjackGame.Player.Username {
 
@@ -104,7 +112,7 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 				return
 			}
 
-			GAME_ON = true
+			GameOn = true
 
 			BlackjackGame = NewBlackjack(player, wager)
 			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Starting a new game of blackjack with %s, wagering %d chips!", m.Author.Username, wager))
@@ -122,12 +130,14 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 }
 
+// GameOver updates the BlackjackGame's Player to reflect the results of the game, and updates the entry in the database.
+// Outputs the game results to Discord, and sets GameOn to False.
 func GameOver(s *discordgo.Session, m *discordgo.MessageCreate) {
 	message := "Game Over!"
 
 	// If it was a draw
 	if BlackjackGame.Wager == 0 {
-		message += "Your wager was returned."
+		message += " Your wager was returned."
 	} else {
 
 		if BlackjackGame.Wager > 0 {
@@ -140,8 +150,8 @@ func GameOver(s *discordgo.Session, m *discordgo.MessageCreate) {
 			// If the wager brings them to zero, we take pity and keep them at one chip.
 			if BlackjackGame.Player.Chips+BlackjackGame.Wager <= 0 {
 				message += " Uh oh, looks like you lost the last of your chips! I'll put your total back up to 1, so you can keep playing."
-				// They will not be able to wager more chips than they have, so if the wager takes them to zero, we can just add one to the wager to keep them at 1 chip.
-				BlackjackGame.Wager += 1
+				// They will not be able to wager more chips than they have, so if the wager takes them to zero, we can just add MinChips to the wager to keep them at that number of chips.
+				BlackjackGame.Wager += MinChips
 			} else {
 				// wager *-1, so we get the positive number of chips lost
 				message += fmt.Sprintf(" You lost %d chips.", BlackjackGame.Wager*-1)
@@ -150,11 +160,62 @@ func GameOver(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		// Updating the chip balance for the player
 		BlackjackGame.Player.Chips += BlackjackGame.Wager
-		dba.UpdateChipBalance(BlackjackGame.Player)
 
 		message += fmt.Sprintf("\nYour new chip total is: %d", BlackjackGame.Player.Chips)
 	}
 
+	dba.UpdatePlayer(BlackjackGame.Player)
 	s.ChannelMessageSend(m.ChannelID, message)
-	GAME_ON = false
+	GameOn = false
+
+}
+
+func DisplayLeaderboard(player Player, leaderboardType string, s *discordgo.Session, m *discordgo.MessageCreate) {
+
+	message := strings.ToUpper(leaderboardType) + " LEADERBOARD\n" +
+		"================================================\n" +
+		"Player Name                               " + strings.ToTitle(leaderboardType) + "\n"
+
+	var leaderboard []Player
+	switch leaderboardType {
+	case "wins":
+		leaderboard = dba.GetLeaderboard(Wins)
+	case "chips":
+		leaderboard = dba.GetLeaderboard(Chips)
+	}
+
+	playerFound := false
+
+	for i, row := range leaderboard {
+
+		if row == player {
+			playerFound = true
+		}
+
+		var temp int
+
+		switch leaderboardType {
+		case "wins":
+			temp = row.Wins
+		case "chips":
+			temp = row.Chips
+		}
+
+		if i < 10 {
+			message += fmt.Sprintf("%d. %-40s%d\n", i+1, row.Username, temp)
+			if i == 9 && !playerFound {
+				message += "................................................\n" +
+					"................................................\n" +
+					"................................................\n"
+			}
+		} else if row == player {
+			message += fmt.Sprintf("%d. %s%d\n", i+1, row.Username, temp)
+			message += row.Username
+			break
+		}
+
+	}
+
+	s.ChannelMessageSend(m.ChannelID, message)
+
 }
