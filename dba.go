@@ -57,7 +57,7 @@ func (dba *DBA) CreatePlayer(username string) Player {
 	// Creating the new player object. All not included parameter names are integers and will be set to their zero value (which is 0)
 	newPlayer := Player{Username: username, Chips: StartingChips}
 	// Not inserting the wins, losses, or ties because those default to 0 in the database
-	res, err := dba.conn.Exec(fmt.Sprintf("INSERT INTO player VALUES(NULL,'%s','%d');", newPlayer.Username, newPlayer.Chips))
+	res, err := dba.conn.Exec(fmt.Sprintf("INSERT INTO player VALUES(NULL,'%s', '%d', '%d', '%d', '%d');", newPlayer.Username, newPlayer.Chips, newPlayer.Wins, newPlayer.Ties, newPlayer.Losses))
 	if err != nil {
 		log.Fatal(err)
 	}
