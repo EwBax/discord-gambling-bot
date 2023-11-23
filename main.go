@@ -69,26 +69,45 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if strings.ToLower(m.Content) == "!balance" {
 		chipTotal := dba.GetChipTotal(m.Author.Username)
 		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s, your chip total is: %d", m.Author.Username, chipTotal))
+
 	} else if strings.ToLower(m.Content) == "!leaderboard wins" {
 		player := dba.FindPlayer(m.Author.Username)
 		DisplayLeaderboard(player, "wins", s, m.ChannelID)
+
 	} else if strings.ToLower(m.Content) == "!leaderboard chips" {
 		player := dba.FindPlayer(m.Author.Username)
 		DisplayLeaderboard(player, "chips", s, m.ChannelID)
+
 	} else if strings.ToLower(m.Content) == "!leaderboard" {
 		s.ChannelMessageSend(m.ChannelID, "You can do !leaderboard wins or !leaderboard chips for a leaderboard sorted for each statistic!")
+
 	} else if GameOn {
 
 		// Checking that the message was from the player, it was sent in the correct channel, and it is their turn
 		if m.Author.Username == BlackjackGame.Player.Username && m.ChannelID == BlackjackGame.ChannelID && BlackjackGame.IsPlayersTurn {
+
 			if strings.ToLower(m.Content) == "!hit" {
-				s.ChannelMessageSend(BlackjackGame.ChannelID, "You chose to hit!")
-				BlackjackGame.Hit(&BlackjackGame.PlayerHand)
-				BlackjackGame.RunPlayerTurn(s, BlackjackGame.ChannelID)
+
+				message := fmt.Sprintf(BlackjackGame.PlayerHit())
+				message += BlackjackGame.RunPlayerTurn()
+				s.ChannelMessageSend(BlackjackGame.ChannelID, message)
+
+				// If the player's turn is over, which happens when they bust or get 21
+				if !BlackjackGame.IsPlayersTurn {
+					// If their turn is over because they got 21, run the dealer's turn
+					// Dealer doesn't need to go if the player busted
+					if BlackjackGame.PlayerHand.Value() == 21 {
+						BlackjackGame.RunDealerTurn()
+					}
+					GameOver(s)
+				}
+
 			} else if strings.ToLower(m.Content) == "!stand" {
-				s.ChannelMessageSend(m.ChannelID, "You chose to stand!")
-				BlackjackGame.IsPlayersTurn = false
-				BlackjackGame.RunDealerTurn(s, BlackjackGame.ChannelID)
+
+				s.ChannelMessageSend(m.ChannelID, BlackjackGame.PlayerStand())
+				BlackjackGame.RunDealerTurn()
+				GameOver(s)
+
 			}
 		}
 
@@ -128,13 +147,14 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 		// Creating the BlackjackGame and setting the channel ID for the channel it will be played on
 		BlackjackGame = NewBlackjack(player, wager)
 		BlackjackGame.ChannelID = currentChannel.ID
-
-		s.ChannelMessageSend(BlackjackGame.ChannelID, fmt.Sprintf("Starting a new game of blackjack with %s, wagering %d chips!", m.Author.Username, wager))
-
 		GameOn = true
-		s.ChannelMessageSend(BlackjackGame.ChannelID, BlackjackGame.GetDealerHand())
 
-		BlackjackGame.RunPlayerTurn(s, BlackjackGame.ChannelID)
+		message := fmt.Sprintf("Starting a new game of blackjack with %s, wagering %d chips!\n", m.Author.Username, wager)
+		message += fmt.Sprintln(BlackjackGame.GetDealerHand())
+		message += "\n"
+		message += BlackjackGame.RunPlayerTurn()
+
+		s.ChannelMessageSend(BlackjackGame.ChannelID, message)
 
 	} else if strings.ToLower(m.Content) == "!blackjack" {
 		// If they entered !blackjack but no wager
@@ -147,8 +167,9 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 // GameOver updates the BlackjackGame's Player to reflect the results of the game, and updates the entry in the database.
 // Outputs the game results to Discord, and sets GameOn to False.
-func GameOver(s *discordgo.Session, channelD string) {
-	message := "Game Over!"
+func GameOver(s *discordgo.Session) {
+
+	message := BlackjackGame.Results()
 
 	// If it was a draw
 	if BlackjackGame.Wager == 0 {
@@ -164,7 +185,7 @@ func GameOver(s *discordgo.Session, channelD string) {
 			// Negative wager, so they lost
 			// If the wager brings them to zero, we take pity and keep them at one chip.
 			if BlackjackGame.Player.Chips+BlackjackGame.Wager <= 0 {
-				message += " Uh oh, looks like you lost the last of your chips! I'll put your total back up to 1, so you can keep playing."
+				message += "\n\nUh oh, looks like you lost the last of your chips! I'll put your total back up to 1, so you can keep playing."
 				// They will not be able to wager more chips than they have, so if the wager takes them to zero, we can just add MinChips to the wager to keep them at that number of chips.
 				BlackjackGame.Wager += MinChips
 			} else {
@@ -176,16 +197,16 @@ func GameOver(s *discordgo.Session, channelD string) {
 		// Updating the chip balance for the player
 		BlackjackGame.Player.Chips += BlackjackGame.Wager
 
-		message += fmt.Sprintf("\nYour new chip total is: %d", BlackjackGame.Player.Chips)
+		message += fmt.Sprintf("\n\nYour new chip total is: %d", BlackjackGame.Player.Chips)
 	}
 
 	dba.UpdatePlayer(BlackjackGame.Player)
-	s.ChannelMessageSend(channelD, message)
+	s.ChannelMessageSend(BlackjackGame.ChannelID, message)
 	GameOn = false
 
 }
 
-func DisplayLeaderboard(player Player, leaderboardType string, s *discordgo.Session, channelD string) {
+func DisplayLeaderboard(player Player, leaderboardType string, s *discordgo.Session, channelID string) {
 
 	var tbl table.Table
 	var sb strings.Builder
@@ -225,6 +246,7 @@ func DisplayLeaderboard(player Player, leaderboardType string, s *discordgo.Sess
 	tbl.WithWriter(&sb)
 	tbl.Print()
 
-	s.ChannelMessageSend(channelD, "```"+sb.String()+"```")
+	// Printing this inside ``` ``` wrapping to make it block text in discord, so formatting is not messed up
+	s.ChannelMessageSend(channelID, "```"+sb.String()+"```")
 
 }
