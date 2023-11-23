@@ -30,7 +30,7 @@ func main() {
 	dba.OpenConnection(DbPath)
 
 	// Creating a new Discord session using the bot token
-	sess, err := discordgo.New(config.Token)
+	sess, err := discordgo.New("Bot " + config.Token)
 	if err != nil {
 		log.Fatal(err)
 	}
