@@ -130,7 +130,7 @@ func (dba *DBA) GetLeaderboard(leaderboardType int) []Player {
 	}
 
 	// Querying the database
-	rows, err := dba.conn.Query(fmt.Sprintf("SELECT * FROM player ORDER BY player.%s DESC;", temp))
+	rows, err := dba.conn.Query(fmt.Sprintf("SELECT * FROM player ORDER BY player.%s DESC, player.Username ASC;", temp))
 
 	if err != nil {
 		log.Fatal(err)

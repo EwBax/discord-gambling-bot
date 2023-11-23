@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/bwmarrin/discordgo"
+	"github.com/rodaine/table"
 	"log"
 	"os"
 	"os/signal"
@@ -9,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-
-	"github.com/bwmarrin/discordgo"
 )
 
 // GameOn Whether the bot is currently playing a game with someone
@@ -187,50 +187,44 @@ func GameOver(s *discordgo.Session, channelD string) {
 
 func DisplayLeaderboard(player Player, leaderboardType string, s *discordgo.Session, channelD string) {
 
-	message := strings.ToUpper(leaderboardType) + " LEADERBOARD\n" +
-		"================================================\n" +
-		"Player Name                               " + strings.ToTitle(leaderboardType) + "\n"
+	var tbl table.Table
+	var sb strings.Builder
+
+	// Writing the table name
+	sb.WriteString(strings.ToUpper(leaderboardType) + " LEADERBOARD\n")
+	sb.WriteString("================================================\n")
 
 	var leaderboard []Player
+
+	// Getting the proper headers and leaderboard
 	switch leaderboardType {
 	case "wins":
 		leaderboard = dba.GetLeaderboard(Wins)
+		tbl = table.New("RANK", "PLAYER", "WINS", "TIES", "LOSSES", "CHIPS")
 	case "chips":
 		leaderboard = dba.GetLeaderboard(Chips)
+		tbl = table.New("RANK", "PLAYER", "CHIPS", "WINS", "TIES", "LOSSES")
 	}
 
-	playerFound := false
-
+	// Looping through the rows, displaying top 5 and player who requested leaderboard
 	for i, row := range leaderboard {
 
-		if row == player {
-			playerFound = true
-		}
+		if i < 5 || row == player {
 
-		var temp int
-
-		switch leaderboardType {
-		case "wins":
-			temp = row.Wins
-		case "chips":
-			temp = row.Chips
-		}
-
-		if i < 10 {
-			message += fmt.Sprintf("%d. %-40s%d\n", i+1, row.Username, temp)
-			if i == 9 && !playerFound {
-				message += "................................................\n" +
-					"................................................\n" +
-					"................................................\n"
+			switch leaderboardType {
+			case "wins":
+				tbl.AddRow(i+1, row.Username, row.Wins, row.Ties, row.Losses, row.Chips)
+			case "chips":
+				tbl.AddRow(i+1, row.Username, row.Chips, row.Wins, row.Ties, row.Losses)
 			}
-		} else if row == player {
-			message += fmt.Sprintf("%d. %s%d\n", i+1, row.Username, temp)
-			message += row.Username
-			break
-		}
 
+		}
 	}
 
-	s.ChannelMessageSend(channelD, message)
+	// Setting the table to write to the string builder
+	tbl.WithWriter(&sb)
+	tbl.Print()
+
+	s.ChannelMessageSend(channelD, "```"+sb.String()+"```")
 
 }
