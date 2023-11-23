@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"strconv"
-
-	"github.com/bwmarrin/discordgo"
 )
 
 // BlackjackHand Represents a player's hand in a game of blackjack.
@@ -61,7 +59,7 @@ func (h BlackjackHand) SoftSeventeen() bool {
 
 }
 
-// Implementing the stringer interface for blackjackhand
+// Implementing the stringer interface for BlackjackHand
 func (h BlackjackHand) String() string {
 
 	message := ""
@@ -147,29 +145,29 @@ func (b *Blackjack) Hit(h *BlackjackHand) {
 }
 
 // RunPlayerTurn Handles the next Player turn in the game
-func (b *Blackjack) RunPlayerTurn(s *discordgo.Session, channelD string) {
+func (b *Blackjack) RunPlayerTurn() string {
+
+	var message string
 
 	// If the player's hand is under 21, prompt them to hit or stand
 	if (*b).PlayerHand.Value() < 21 {
-		(*b).PromptPlayer(s, channelD)
-		return
+		message = fmt.Sprintln((*b).PromptPlayer())
 	} else if (*b).PlayerHand.Value() > 21 {
 		// Player must have busted
-		(*b).PlayerBust(s, channelD)
+		message = fmt.Sprintln((*b).PlayerBust())
 	} else {
 		// The player's hand is 21, so they cannot hit anymore. Display their hand then move to dealer turn
-		s.ChannelMessageSend(channelD, (*b).GetPlayerHand())
-		(*b).RunDealerTurn(s, channelD)
+		message = fmt.Sprintln((*b).GetPlayerHand())
+		// To get to this point the player either busts or stands
+		(*b).IsPlayersTurn = false
 	}
 
-	// To get to this point the player either busts or stands
-	(*b).IsPlayersTurn = false
+	return message
+
 }
 
 // RunDealerTurn Handles the Dealer turns in the game
-func (b *Blackjack) RunDealerTurn(s *discordgo.Session, channelD string) {
-
-	s.ChannelMessageSend(channelD, "It is the dealer's turn!")
+func (b *Blackjack) RunDealerTurn() {
 
 	//// This is the logic for casino blackjack where the Dealer is playing against more than one player
 	//// The dealer hits on anything less than 17, and also hits on a soft 17 (has an ace counting as 11)
@@ -184,42 +182,48 @@ func (b *Blackjack) RunDealerTurn(s *discordgo.Session, channelD string) {
 		(*b).Hit(&(*b).DealerHand)
 	}
 
-	(*b).DisplayResults(s, channelD)
-	GameOver(s, channelD)
-
 }
 
 // PromptPlayer Prompts the player by displaying their hand then asking to hit or stand.
-func (b *Blackjack) PromptPlayer(s *discordgo.Session, channelD string) {
+func (b *Blackjack) PromptPlayer() string {
 
-	message := b.GetPlayerHand()
-	s.ChannelMessageSend(channelD, message)
-	s.ChannelMessageSend(channelD, "Enter !hit to hit, !stand to stand.")
+	message := fmt.Sprintln((*b).GetPlayerHand())
+	message += "Enter !hit to hit, !stand to stand."
+
+	return message
 
 }
 
 // PlayerBust Displays the player's hand and a message that they have busted
-func (b *Blackjack) PlayerBust(s *discordgo.Session, channelD string) {
+func (b *Blackjack) PlayerBust() string {
 
-	message := (*b).GetPlayerHand()
-	s.ChannelMessageSend(channelD, message)
-	s.ChannelMessageSend(channelD, "Uh oh, you bust!")
-	b.DisplayResults(s, channelD)
-	GameOver(s, channelD)
+	message := fmt.Sprintln((*b).GetPlayerHand())
+	message += "\nUh oh, you bust!"
+
+	(*b).IsPlayersTurn = false
+
+	return message
 
 }
 
 // PlayerStand Displays the player's hand and that they have chosen to stand.
-func (b *Blackjack) PlayerStand(s *discordgo.Session, channelD string) {
+func (b *Blackjack) PlayerStand() string {
 
-	message := (*b).GetPlayerHand()
-	message += "\nYou stand! It is now the dealer's turn."
-	s.ChannelMessageSend(channelD, message)
+	(*b).IsPlayersTurn = false
+	return "\nYou stand! It is now the dealer's turn."
 
 }
 
-// DisplayResults Displays the final results of the game
-func (b *Blackjack) DisplayResults(s *discordgo.Session, channelD string) {
+// PlayerHit Displays feedback to the player and deals them a new card
+func (b *Blackjack) PlayerHit() string {
+
+	BlackjackGame.Hit(&BlackjackGame.PlayerHand)
+	return "You chose to hit!"
+
+}
+
+// Results Displays the final results of the game
+func (b *Blackjack) Results() string {
 
 	message := "=======================\n\t\t\t\tRESULTS\n=======================\n\n"
 
@@ -229,7 +233,7 @@ func (b *Blackjack) DisplayResults(s *discordgo.Session, channelD string) {
 
 	// Determining the winner. Dealer wins if their hand is > player hand, and not above 21
 	if (*b).PlayerHand.Value() > 21 || ((*b).DealerHand.Value() > (*b).PlayerHand.Value() && (*b).DealerHand.Value() <= 21) {
-		s.ChannelMessageSend(channelD, message+"The dealer wins.")
+		message += "The dealer wins."
 		// If the player loses, they lose their wager. so we set it to negative here so when it is updated in game over,
 		// the wager is subtracted
 		(*b).Wager *= -1
@@ -237,13 +241,16 @@ func (b *Blackjack) DisplayResults(s *discordgo.Session, channelD string) {
 		(*b).Player.Losses++
 	} else if (*b).DealerHand.Value() == (*b).PlayerHand.Value() {
 		// Draw, set wager to 0, so they get their chips back
-		s.ChannelMessageSend(channelD, message+"It's a draw!")
+		message += "It's a draw!"
 		(*b).Wager = 0
 		// Updating the player's ties stat
 		(*b).Player.Ties++
 	} else {
-		s.ChannelMessageSend(channelD, message+(*b).Player.Username+" wins!")
+		message += (*b).Player.Username + " wins!"
 		// Updating the player's wins stat
 		(*b).Player.Wins++
 	}
+
+	return message
+
 }
