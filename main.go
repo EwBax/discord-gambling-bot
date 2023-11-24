@@ -88,7 +88,7 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 			if strings.ToLower(m.Content) == "!hit" {
 
-				message := fmt.Sprintf(BlackjackGame.PlayerHit())
+				message := fmt.Sprintln(BlackjackGame.PlayerHit())
 				message += BlackjackGame.RunPlayerTurn()
 				s.ChannelMessageSend(BlackjackGame.ChannelID, message)
 
