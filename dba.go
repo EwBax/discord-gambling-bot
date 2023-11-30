@@ -10,10 +10,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// DbPath The connection string for the database.
-// Because it is just a sqlite database stored in the same directory as the program, it is okay to have this hard coded.
-const DbPath string = "casino.db"
-
 type DBA struct {
 	conn *sql.DB
 }

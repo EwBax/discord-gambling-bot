@@ -1,1 +1,4 @@
-{"token":  "token_value"}
+{
+  "token":  "token_value",
+  "dPath" :  "database path"
+}
