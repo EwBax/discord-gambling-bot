@@ -144,6 +144,24 @@ func (b *Blackjack) Hit(h *BlackjackHand) {
 	*h = append(*h, (*b).CardDeck.DealCard())
 }
 
+// RunDealerTurn Handles the Dealer turns in the game
+func (b *Blackjack) RunDealerTurn() {
+
+	//// This is the logic for casino blackjack where the Dealer is playing against more than one player
+	//// The dealer hits on anything less than 17, and also hits on a soft 17 (has an ace counting as 11)
+	//for (*b).DealerHand.Value() < 17 || (*b).DealerHand.SoftSeventeen() {
+	//	(*b).Hit(&(*b).DealerHand)
+	//}
+
+	// This is the logic for 1v1 blackjack. The Dealer can see the player's hand and will continue to hit until they either beat them or bust
+	// If they are tied, the dealer will hit on a soft 17 or lower
+	for ((*b).DealerHand.Value() < (*b).PlayerHand.Value() && (*b).DealerHand.Value() < 21) ||
+		((*b).DealerHand.Value() == (*b).PlayerHand.Value() && ((*b).DealerHand.Value() < 17 || (*b).DealerHand.SoftSeventeen())) {
+		(*b).Hit(&(*b).DealerHand)
+	}
+
+}
+
 // RunPlayerTurn Handles the next Player turn in the game
 func (b *Blackjack) RunPlayerTurn() string {
 
@@ -166,24 +184,6 @@ func (b *Blackjack) RunPlayerTurn() string {
 
 }
 
-// RunDealerTurn Handles the Dealer turns in the game
-func (b *Blackjack) RunDealerTurn() {
-
-	//// This is the logic for casino blackjack where the Dealer is playing against more than one player
-	//// The dealer hits on anything less than 17, and also hits on a soft 17 (has an ace counting as 11)
-	//for (*b).DealerHand.Value() < 17 || (*b).DealerHand.SoftSeventeen() {
-	//	(*b).Hit(&(*b).DealerHand)
-	//}
-
-	// This is the logic for 1v1 blackjack. The Dealer can see the player's hand and will continue to hit until they either beat them or bust
-	// If they are tied, the dealer will hit on a soft 17 or lower
-	for ((*b).DealerHand.Value() < (*b).PlayerHand.Value() && (*b).DealerHand.Value() < 21) ||
-		((*b).DealerHand.Value() == (*b).PlayerHand.Value() && ((*b).DealerHand.Value() < 17 || (*b).DealerHand.SoftSeventeen())) {
-		(*b).Hit(&(*b).DealerHand)
-	}
-
-}
-
 // PromptPlayer Prompts the player by displaying their hand then asking to hit or stand.
 func (b *Blackjack) PromptPlayer() string {
 
@@ -203,22 +203,6 @@ func (b *Blackjack) PlayerBust() string {
 	(*b).IsPlayersTurn = false
 
 	return message
-
-}
-
-// PlayerStand Displays the player's hand and that they have chosen to stand.
-func (b *Blackjack) PlayerStand() string {
-
-	(*b).IsPlayersTurn = false
-	return "\nYou stand! It is now the dealer's turn."
-
-}
-
-// PlayerHit Displays feedback to the player and deals them a new card
-func (b *Blackjack) PlayerHit() string {
-
-	(*b).Hit(&(*b).PlayerHand)
-	return "You chose to hit!"
 
 }
 

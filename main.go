@@ -40,7 +40,7 @@ var (
 	minWager = 1.0
 
 	// BlackjackGamesMap Global variable slice of ongoing games of blackjack
-	BlackjackGamesMap = make(map[string]Blackjack)
+	BlackjackGamesMap = make(map[string]*Blackjack)
 
 	// commands is a list of the application commands this bot uses
 	commands = []*discordgo.ApplicationCommand{
@@ -226,12 +226,18 @@ var (
 			newGame := NewBlackjack(player, wager)
 			newGame.ChannelID = gameChannel.ID
 			// Adding the game to the map
-			BlackjackGamesMap[player.Username] = newGame
+			BlackjackGamesMap[player.Username] = &newGame
 
 			// Creating the message to display to the player at the start of the game
 			message := newGame.GetDealerHand() + "\n\n"
 			message += newGame.RunPlayerTurn()
 			_, _ = s.ChannelMessageSend(newGame.ChannelID, message)
+
+			// If the player gets dealt a 21
+			if !newGame.IsPlayersTurn {
+				newGame.RunDealerTurn()
+				GameOver(s, newGame)
+			}
 
 		},
 	}
@@ -300,29 +306,32 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Checking that the message was from the player, it was sent in the correct channel, and it is their turn
 	username := m.Author.Username
 	game, ok := BlackjackGamesMap[username]
-	if ok && m.ChannelID == game.ChannelID {
+	if (ok) && (m.ChannelID == game.ChannelID) && (game.IsPlayersTurn) {
 
 		if strings.ToLower(m.Content) == "!hit" {
 
-			message := fmt.Sprintln(game.PlayerHit())
+			game.Hit(&game.PlayerHand)
+			message := "You chose to hit!\n"
 			message += game.RunPlayerTurn()
 			_, _ = s.ChannelMessageSend(game.ChannelID, message)
 
-			// If the player's turn is over, which happens when they bust or get 21
+			// If the player's turn is now over, which happens when they bust or get 21
 			if !game.IsPlayersTurn {
 				// If their turn is over because they got 21, run the dealer's turn
 				// Dealer doesn't need to go if the player busted
 				if game.PlayerHand.Value() == 21 {
+					game.IsPlayersTurn = false
 					game.RunDealerTurn()
 				}
-				GameOver(s, game)
+				GameOver(s, *game)
 			}
 
 		} else if strings.ToLower(m.Content) == "!stand" {
 
-			_, _ = s.ChannelMessageSend(m.ChannelID, game.PlayerStand())
+			game.IsPlayersTurn = false
+			_, _ = s.ChannelMessageSend(m.ChannelID, "\nYou stand! It is now the dealer's turn.")
 			game.RunDealerTurn()
-			GameOver(s, game)
+			GameOver(s, *game)
 
 		}
 	}
