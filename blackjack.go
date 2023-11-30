@@ -217,7 +217,7 @@ func (b *Blackjack) PlayerStand() string {
 // PlayerHit Displays feedback to the player and deals them a new card
 func (b *Blackjack) PlayerHit() string {
 
-	BlackjackGame.Hit(&BlackjackGame.PlayerHand)
+	(*b).Hit(&(*b).PlayerHand)
 	return "You chose to hit!"
 
 }

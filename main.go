@@ -17,9 +17,7 @@ var (
 	// s is the session connection
 	s *discordgo.Session
 	// The database adapter
-	dba DBA
-	// GameOn Whether the bot is currently playing a game with someone
-	GameOn = false
+	dba    DBA
 	Config Configuration
 )
 
@@ -41,9 +39,10 @@ func init() {
 var (
 	minWager = 1.0
 
-	// BlackjackGame Global variable for a game of blackjack
-	BlackjackGame Blackjack
+	// BlackjackGamesMap Global variable slice of ongoing games of blackjack
+	BlackjackGamesMap = make(map[string]Blackjack)
 
+	// commands is a list of the application commands this bot uses
 	commands = []*discordgo.ApplicationCommand{
 		{
 			// Name of the command
@@ -79,20 +78,26 @@ var (
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "bet",
+					Name:        "wager",
 					Description: "The amount of chips you want to wager.",
 					Required:    true,
 					MinValue:    &minWager,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "force",
+					Description: "If you are in another game, forfeits that wager and forces it to stop before starting a new one.",
+					Required:    false,
 				},
 			},
 		},
 	}
 
+	// commandHandlers is a list of the command handlers for each command
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"balance": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			chipTotal := dba.GetChipTotal(i.Member.User.Username)
 			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				// Ignore type for now, they will be discussed in "responses"
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
 					Content: fmt.Sprintf(
@@ -109,7 +114,6 @@ var (
 			option := strings.ToLower(i.ApplicationCommandData().Options[0].StringValue())
 
 			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				// Ignore type for now, they will be discussed in "responses"
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
 					Content: DisplayLeaderboard(i.Member.User.Username, option),
@@ -119,22 +123,90 @@ var (
 		},
 		"blackjack": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
-			// Checking if we're in a game, we can only play one game at a time in guild, but can play multiple over direct message
-			if GameOn {
+			// Getting options and storing in map
+			options := i.ApplicationCommandData().Options
+			optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+			for _, opt := range options {
+				optionMap[opt.Name] = opt
+			}
+
+			player := dba.FindPlayer(i.Member.User.Username)
+
+			// Checking if there is a game being played in this channel
+			// Looping through ongoing games
+			for _, game := range BlackjackGamesMap {
+				// Checking if the channel matches
+				if game.ChannelID == i.ChannelID {
+					// If the player of the ongoing game is the player sending the command
+					if game.Player == player {
+						_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionResponseData{
+								Content: "We're already playing a game here!",
+							},
+						})
+					} else {
+						_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionResponseData{
+								Content: fmt.Sprintf(
+									"I'm currently playing a game with %s in this channel. Please try another channel.",
+									game.Player.Username,
+								),
+							},
+						})
+					}
+					return
+				}
+			}
+
+			// Checking if the player starting the game is currently in a game already
+			game, ok := BlackjackGamesMap[player.Username]
+			if ok {
+				var force *discordgo.ApplicationCommandInteractionDataOption
+				force, ok = optionMap["force"]
+				// If the player is already in a game
+				if ok && force.BoolValue() {
+
+					_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: fmt.Sprintf(
+								"Stopping your other game to start a new one! Your previous wager of %d was forfeited.",
+								game.Wager,
+							),
+						},
+					})
+					// subtracting the wager
+					player.Chips -= game.Wager
+					dba.UpdatePlayer(player)
+
+				} else {
+
+					_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: "You're currently in a game elsewhere! Finish that game first, or use the force flag to start a new game.",
+						},
+					})
+					return
+
+				}
+			} else {
+				// The player is not currently in a game
 				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					// Ignore type for now, they will be discussed in "responses"
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
-						Content: "I'm currently in a game, please try again in a moment!",
+						Content: fmt.Sprintf(
+							"Starting a new game of blackjack with %s!",
+							player.Username,
+						),
 					},
 				})
-				return
 			}
 
 			// Getting the wager amount from the command option. It is validated to be an integer > 1 by the command settings
-			wager := int(i.ApplicationCommandData().Options[0].IntValue())
-
-			player := dba.FindPlayer(i.Member.User.Username)
+			wager := int(optionMap["wager"].IntValue())
 
 			// Getting the type of the channel the message was sent on
 			currentChannel, _ := s.Channel(i.ChannelID)
@@ -151,25 +223,15 @@ var (
 			}
 
 			// Creating the game and setting the game channel
-			BlackjackGame = NewBlackjack(player, wager)
-			BlackjackGame.ChannelID = gameChannel.ID
-			GameOn = true
+			newGame := NewBlackjack(player, wager)
+			newGame.ChannelID = gameChannel.ID
+			// Adding the game to the map
+			BlackjackGamesMap[player.Username] = newGame
 
-			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				// Ignore type for now, they will be discussed in "responses"
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: fmt.Sprintf(
-						"Starting a new game of blackjack with %s!",
-						i.Member.User.Username,
-					),
-				},
-			})
-
-			message := BlackjackGame.GetDealerHand() + "\n\n"
-			message += BlackjackGame.RunPlayerTurn()
-
-			_, _ = s.ChannelMessageSend(BlackjackGame.ChannelID, message)
+			// Creating the message to display to the player at the start of the game
+			message := newGame.GetDealerHand() + "\n\n"
+			message += newGame.RunPlayerTurn()
+			_, _ = s.ChannelMessageSend(newGame.ChannelID, message)
 
 		},
 	}
@@ -186,8 +248,6 @@ func init() {
 }
 
 func main() {
-
-	GameOn = false
 
 	err := s.Open()
 
@@ -237,78 +297,77 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if GameOn {
+	// Checking that the message was from the player, it was sent in the correct channel, and it is their turn
+	username := m.Author.Username
+	game, ok := BlackjackGamesMap[username]
+	if ok && m.ChannelID == game.ChannelID {
 
-		// Checking that the message was from the player, it was sent in the correct channel, and it is their turn
-		if m.Author.Username == BlackjackGame.Player.Username && m.ChannelID == BlackjackGame.ChannelID && BlackjackGame.IsPlayersTurn {
+		if strings.ToLower(m.Content) == "!hit" {
 
-			if strings.ToLower(m.Content) == "!hit" {
+			message := fmt.Sprintln(game.PlayerHit())
+			message += game.RunPlayerTurn()
+			_, _ = s.ChannelMessageSend(game.ChannelID, message)
 
-				message := fmt.Sprintln(BlackjackGame.PlayerHit())
-				message += BlackjackGame.RunPlayerTurn()
-				_, _ = s.ChannelMessageSend(BlackjackGame.ChannelID, message)
-
-				// If the player's turn is over, which happens when they bust or get 21
-				if !BlackjackGame.IsPlayersTurn {
-					// If their turn is over because they got 21, run the dealer's turn
-					// Dealer doesn't need to go if the player busted
-					if BlackjackGame.PlayerHand.Value() == 21 {
-						BlackjackGame.RunDealerTurn()
-					}
-					GameOver(s)
+			// If the player's turn is over, which happens when they bust or get 21
+			if !game.IsPlayersTurn {
+				// If their turn is over because they got 21, run the dealer's turn
+				// Dealer doesn't need to go if the player busted
+				if game.PlayerHand.Value() == 21 {
+					game.RunDealerTurn()
 				}
-
-			} else if strings.ToLower(m.Content) == "!stand" {
-
-				_, _ = s.ChannelMessageSend(m.ChannelID, BlackjackGame.PlayerStand())
-				BlackjackGame.RunDealerTurn()
-				GameOver(s)
-
+				GameOver(s, game)
 			}
-		}
 
+		} else if strings.ToLower(m.Content) == "!stand" {
+
+			_, _ = s.ChannelMessageSend(m.ChannelID, game.PlayerStand())
+			game.RunDealerTurn()
+			GameOver(s, game)
+
+		}
 	}
 
 }
 
 // GameOver updates the BlackjackGame's Player to reflect the results of the game, and updates the entry in the database.
 // Outputs the game results to Discord, and sets GameOn to False.
-func GameOver(s *discordgo.Session) {
+func GameOver(s *discordgo.Session, game Blackjack) {
 
-	message := BlackjackGame.Results()
+	message := game.Results()
 
 	// If it was a draw
-	if BlackjackGame.Wager == 0 {
+	if game.Wager == 0 {
 		message += " Your wager was returned."
 	} else {
 
-		if BlackjackGame.Wager > 0 {
+		if game.Wager > 0 {
 
 			// If the wager is positive they are gaining chips
-			message += fmt.Sprintf(" You've gained %d chips!", BlackjackGame.Wager)
+			message += fmt.Sprintf(" You've gained %d chips!", game.Wager)
 
 		} else {
 			// Negative wager, so they lost
 			// If the wager brings them to zero, we take pity and keep them at one chip.
-			if BlackjackGame.Player.Chips+BlackjackGame.Wager <= 0 {
+			if game.Player.Chips+game.Wager <= 0 {
 				message += "\n\nUh oh, looks like you lost the last of your chips! I'll put your total back up to 1, so you can keep playing."
 				// They will not be able to wager more chips than they have, so if the wager takes them to zero, we can just add MinChips to the wager to keep them at that number of chips.
-				BlackjackGame.Wager += MinChips
+				game.Wager += MinChips
 			} else {
 				// wager *-1, so we get the positive number of chips lost
-				message += fmt.Sprintf(" You lost %d chips.", BlackjackGame.Wager*-1)
+				message += fmt.Sprintf(" You lost %d chips.", game.Wager*-1)
 			}
 		}
 
 		// Updating the chip balance for the player
-		BlackjackGame.Player.Chips += BlackjackGame.Wager
+		game.Player.Chips += game.Wager
 
-		message += fmt.Sprintf("\n\nYour new chip total is: %d", BlackjackGame.Player.Chips)
+		message += fmt.Sprintf("\n\nYour new chip total is: %d", game.Player.Chips)
 	}
-
-	dba.UpdatePlayer(BlackjackGame.Player)
-	_, _ = s.ChannelMessageSend(BlackjackGame.ChannelID, message)
-	GameOn = false
+	// Updating the player entry
+	dba.UpdatePlayer(game.Player)
+	// Removing the game from the map since it is done now
+	delete(BlackjackGamesMap, game.Player.Username)
+	_, _ = s.ChannelMessageSend(game.ChannelID, message)
 
 }
 
