@@ -236,7 +236,7 @@ var (
 			// If the player gets dealt a 21
 			if !newGame.IsPlayersTurn {
 				newGame.RunDealerTurn()
-				GameOver(s, newGame)
+				GameOver(newGame)
 			}
 
 		},
@@ -251,6 +251,10 @@ func init() {
 			h(s, i)
 		}
 	})
+
+	// Handles a message being created in discord
+	s.AddHandler(MessageReceived)
+
 }
 
 func main() {
@@ -262,19 +266,13 @@ func main() {
 	}
 
 	// Adding the commands
-	registeredCommands := make([]*discordgo.ApplicationCommand, len(commands))
-	for i, v := range commands {
-		var cmd *discordgo.ApplicationCommand
+	for _, cmd := range commands {
 		// Using empty guildID to create command globally
-		cmd, err = s.ApplicationCommandCreate(s.State.User.ID, "", v)
+		_, err = s.ApplicationCommandCreate(s.State.User.ID, "", cmd)
 		if err != nil {
-			log.Panicf("Cannot create '%v' command: %v", v.Name, err)
+			log.Panicf("Cannot create '%v' command: %v", cmd.Name, err)
 		}
-		registeredCommands[i] = cmd
 	}
-
-	// Handles a message being created in discord
-	s.AddHandler(MessageReceived)
 
 	// Sets the intent for the session
 	s.Identify.Intents = discordgo.IntentsAllWithoutPrivileged
@@ -323,7 +321,7 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 					game.IsPlayersTurn = false
 					game.RunDealerTurn()
 				}
-				GameOver(s, *game)
+				GameOver(*game)
 			}
 
 		} else if strings.ToLower(m.Content) == "!stand" {
@@ -331,7 +329,7 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 			game.IsPlayersTurn = false
 			_, _ = s.ChannelMessageSend(m.ChannelID, "\nYou stand! It is now the dealer's turn.")
 			game.RunDealerTurn()
-			GameOver(s, *game)
+			GameOver(*game)
 
 		}
 	}
@@ -340,7 +338,7 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 // GameOver updates the BlackjackGame's Player to reflect the results of the game, and updates the entry in the database.
 // Outputs the game results to Discord, and sets GameOn to False.
-func GameOver(s *discordgo.Session, game Blackjack) {
+func GameOver(game Blackjack) {
 
 	message := game.Results()
 
