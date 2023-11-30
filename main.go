@@ -7,54 +7,227 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 )
 
-// GameOn Whether the bot is currently playing a game with someone
-var GameOn = false
+// https://github.com/bwmarrin/discordgo/blob/master/examples/slash_commands/main.go#L23
 
-// BlackjackGame Global variable for a game of blackjack
-var BlackjackGame Blackjack
+var (
+	// s is the session connection
+	s *discordgo.Session
+	// The database adapter
+	dba DBA
+	// GameOn Whether the bot is currently playing a game with someone
+	GameOn = false
+	Config Configuration
+)
 
-// The database adapter
-var dba DBA
+func init() {
+	Config = GetConfig()
+	// Opening the database connection
+	dba.OpenConnection(Config.DbPath)
+
+	var err error
+	// Creating a new Discord session using the bot token
+	s, err = discordgo.New("Bot " + Config.Token)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+// Adding discord slash commands and handlers
+var (
+	minWager = 1.0
+
+	// BlackjackGame Global variable for a game of blackjack
+	BlackjackGame Blackjack
+
+	commands = []*discordgo.ApplicationCommand{
+		{
+			// Name of the command
+			Name: "balance",
+			// Description of the command.
+			Description: "See your current balance of chips.",
+		},
+		{
+			Name:        "leaderboard",
+			Description: "View the leaderboard, sorted by either wins or chips.",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "type",
+					Description: "Enter \"wins\" to sort by wins, or \"chips\" to sort by chips",
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "wins",
+							Value: "wins",
+						},
+						{
+							Name:  "chips",
+							Value: "chips",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name:        "blackjack",
+			Description: "Start a game of blackjack against the bot!",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "bet",
+					Description: "The amount of chips you want to wager.",
+					Required:    true,
+					MinValue:    &minWager,
+				},
+			},
+		},
+	}
+
+	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
+		"balance": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			chipTotal := dba.GetChipTotal(i.Member.User.Username)
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				// Ignore type for now, they will be discussed in "responses"
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: fmt.Sprintf(
+						"%s, your chip total is: %d",
+						i.Member.User.Username,
+						chipTotal,
+					),
+				},
+			})
+		},
+		"leaderboard": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+			// Access options in the order provided by the user.
+			option := strings.ToLower(i.ApplicationCommandData().Options[0].StringValue())
+
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				// Ignore type for now, they will be discussed in "responses"
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: DisplayLeaderboard(i.Member.User.Username, option),
+				},
+			})
+
+		},
+		"blackjack": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+			// Checking if we're in a game, we can only play one game at a time in guild, but can play multiple over direct message
+			if GameOn {
+				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					// Ignore type for now, they will be discussed in "responses"
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "I'm currently in a game, please try again in a moment!",
+					},
+				})
+				return
+			}
+
+			// Getting the wager amount from the command option. It is validated to be an integer > 1 by the command settings
+			wager := int(i.ApplicationCommandData().Options[0].IntValue())
+
+			player := dba.FindPlayer(i.Member.User.Username)
+
+			// Getting the type of the channel the message was sent on
+			currentChannel, _ := s.Channel(i.ChannelID)
+			gameChannel := currentChannel
+
+			// Checking if this message was sent in a guild text channel. If it was, we want to make a thread
+			if currentChannel.Type == discordgo.ChannelTypeGuildText {
+				// Creating the thread for the game
+				var err error
+				gameChannel, err = s.ThreadStart(i.ChannelID, "Blackjack with "+i.Member.User.Username, discordgo.ChannelTypeGuildPublicThread, 60)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+
+			// Creating the game and setting the game channel
+			BlackjackGame = NewBlackjack(player, wager)
+			BlackjackGame.ChannelID = gameChannel.ID
+			GameOn = true
+
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				// Ignore type for now, they will be discussed in "responses"
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: fmt.Sprintf(
+						"Starting a new game of blackjack with %s!",
+						i.Member.User.Username,
+					),
+				},
+			})
+
+			message := BlackjackGame.GetDealerHand() + "\n\n"
+			message += BlackjackGame.RunPlayerTurn()
+
+			_, _ = s.ChannelMessageSend(BlackjackGame.ChannelID, message)
+
+		},
+	}
+)
+
+func init() {
+	// Adding a handler to the session to handle InteractionCreate events (slash command)
+	s.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		// Calling the command handler for the command that was sent, passing the session and the interaction
+		if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
+			h(s, i)
+		}
+	})
+}
 
 func main() {
 
-	config := GetConfig()
+	GameOn = false
 
-	// Opening the database connection
-	dba.OpenConnection(DbPath)
+	err := s.Open()
 
-	// Creating a new Discord session using the bot token
-	sess, err := discordgo.New("Bot " + config.Token)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Adding the commands
+	registeredCommands := make([]*discordgo.ApplicationCommand, len(commands))
+	for i, v := range commands {
+		var cmd *discordgo.ApplicationCommand
+		// Using empty guildID to create command globally
+		cmd, err = s.ApplicationCommandCreate(s.State.User.ID, "", v)
+		if err != nil {
+			log.Panicf("Cannot create '%v' command: %v", v.Name, err)
+		}
+		registeredCommands[i] = cmd
 	}
 
 	// Handles a message being created in discord
-	sess.AddHandler(MessageReceived)
+	s.AddHandler(MessageReceived)
 
 	// Sets the intent for the session
-	sess.Identify.Intents = discordgo.IntentsAllWithoutPrivileged
+	s.Identify.Intents = discordgo.IntentsAllWithoutPrivileged
 
-	err = sess.Open()
+	// deferring s.Close() until this function returns. Wrapped in function to handle error
+	defer func(s *discordgo.Session) {
+		err := s.Close()
+		if err != nil {
 
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	defer sess.Close()
+		}
+	}(s)
 
 	fmt.Println("The bot is online.")
 
-	// This makes the bot continue to run
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-sc
+	// This makes the bot continue to run a termination signal is sent
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	<-stop
+
 }
 
 func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -64,24 +237,7 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	blackjackRegex := regexp.MustCompile(`!blackjack -?\d+`)
-
-	if strings.ToLower(m.Content) == "!balance" {
-		chipTotal := dba.GetChipTotal(m.Author.Username)
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s, your chip total is: %d", m.Author.Username, chipTotal))
-
-	} else if strings.ToLower(m.Content) == "!leaderboard wins" {
-		player := dba.FindPlayer(m.Author.Username)
-		DisplayLeaderboard(player, "wins", s, m.ChannelID)
-
-	} else if strings.ToLower(m.Content) == "!leaderboard chips" {
-		player := dba.FindPlayer(m.Author.Username)
-		DisplayLeaderboard(player, "chips", s, m.ChannelID)
-
-	} else if strings.ToLower(m.Content) == "!leaderboard" {
-		s.ChannelMessageSend(m.ChannelID, "You can do !leaderboard wins or !leaderboard chips for a leaderboard sorted for each statistic!")
-
-	} else if GameOn {
+	if GameOn {
 
 		// Checking that the message was from the player, it was sent in the correct channel, and it is their turn
 		if m.Author.Username == BlackjackGame.Player.Username && m.ChannelID == BlackjackGame.ChannelID && BlackjackGame.IsPlayersTurn {
@@ -90,7 +246,7 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 				message := fmt.Sprintln(BlackjackGame.PlayerHit())
 				message += BlackjackGame.RunPlayerTurn()
-				s.ChannelMessageSend(BlackjackGame.ChannelID, message)
+				_, _ = s.ChannelMessageSend(BlackjackGame.ChannelID, message)
 
 				// If the player's turn is over, which happens when they bust or get 21
 				if !BlackjackGame.IsPlayersTurn {
@@ -104,63 +260,13 @@ func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 			} else if strings.ToLower(m.Content) == "!stand" {
 
-				s.ChannelMessageSend(m.ChannelID, BlackjackGame.PlayerStand())
+				_, _ = s.ChannelMessageSend(m.ChannelID, BlackjackGame.PlayerStand())
 				BlackjackGame.RunDealerTurn()
 				GameOver(s)
 
 			}
 		}
 
-	} else if blackjackRegex.MatchString(strings.ToLower(m.Content)) {
-		// If a user enters !blackjack and a bet amount, we begin the game
-
-		// Getting the wager amount from the !blackjack command
-		wager, _ := strconv.Atoi(strings.Split(m.Content, " ")[1])
-		player := dba.FindPlayer(m.Author.Username)
-
-		// Checking for valid wager
-		if player.Chips < wager {
-			s.ChannelMessageSend(m.ChannelID,
-				fmt.Sprintf("You do not have enough chips to make that wager! Your chip balance is %d.", player.Chips))
-			// We return early here because we don't want to start the game if the wager is not valid
-			return
-		} else if wager <= 0 {
-			s.ChannelMessageSend(m.ChannelID, "Your wager must be 1 or higher.")
-			return
-		}
-
-		// Getting the type of the channel the message was sent on
-		currentChannel, err := s.Channel(m.ChannelID)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Checking if this message was sent in a guild text channel. If it was, we want to make a thread
-		if currentChannel.Type == discordgo.ChannelTypeGuildText {
-			// Creating the thread for the game
-			currentChannel, err = s.ThreadStart(m.ChannelID, "Blackjack with "+m.Author.Username, discordgo.ChannelTypeGuildPublicThread, 60)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-
-		// Creating the BlackjackGame and setting the channel ID for the channel it will be played on
-		BlackjackGame = NewBlackjack(player, wager)
-		BlackjackGame.ChannelID = currentChannel.ID
-		GameOn = true
-
-		message := fmt.Sprintf("Starting a new game of blackjack with %s, wagering %d chips!\n", m.Author.Username, wager)
-		message += fmt.Sprintln(BlackjackGame.GetDealerHand())
-		message += "\n"
-		message += BlackjackGame.RunPlayerTurn()
-
-		s.ChannelMessageSend(BlackjackGame.ChannelID, message)
-
-	} else if strings.ToLower(m.Content) == "!blackjack" {
-		// If they entered !blackjack but no wager
-		s.ChannelMessageSend(m.ChannelID, "You must place a wager of at least one chip to play!"+
-			" Enter \"!blackjack <amount>\" to wager.\nFor example, \"!blackjack 1\" starts a new game wagering 1 "+
-			"chip.\nEnter \"!balance\" to see how many chips you have.")
 	}
 
 }
@@ -201,12 +307,12 @@ func GameOver(s *discordgo.Session) {
 	}
 
 	dba.UpdatePlayer(BlackjackGame.Player)
-	s.ChannelMessageSend(BlackjackGame.ChannelID, message)
+	_, _ = s.ChannelMessageSend(BlackjackGame.ChannelID, message)
 	GameOn = false
 
 }
 
-func DisplayLeaderboard(player Player, leaderboardType string, s *discordgo.Session, channelID string) {
+func DisplayLeaderboard(username string, leaderboardType string) string {
 
 	var tbl table.Table
 	var sb strings.Builder
@@ -230,7 +336,7 @@ func DisplayLeaderboard(player Player, leaderboardType string, s *discordgo.Sess
 	// Looping through the rows, displaying top 5 and player who requested leaderboard
 	for i, row := range leaderboard {
 
-		if i < 5 || row == player {
+		if i < 5 || row.Username == username {
 
 			switch leaderboardType {
 			case "wins":
@@ -247,6 +353,6 @@ func DisplayLeaderboard(player Player, leaderboardType string, s *discordgo.Sess
 	tbl.Print()
 
 	// Printing this inside ``` ``` wrapping to make it block text in discord, so formatting is not messed up
-	s.ChannelMessageSend(channelID, "```"+sb.String()+"```")
+	return "```" + sb.String() + "```"
 
 }

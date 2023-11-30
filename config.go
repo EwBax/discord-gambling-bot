@@ -6,7 +6,8 @@ import (
 )
 
 type Configuration struct {
-	Token string
+	Token  string
+	DbPath string
 }
 
 func GetConfig() Configuration {
