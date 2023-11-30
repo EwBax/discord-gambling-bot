@@ -116,7 +116,7 @@ var (
 			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: DisplayLeaderboard(i.Member.User.Username, option),
+					Content: GetLeaderboard(i.Member.User.Username, option),
 				},
 			})
 
@@ -378,7 +378,7 @@ func GameOver(game Blackjack) {
 
 }
 
-func DisplayLeaderboard(username string, leaderboardType string) string {
+func GetLeaderboard(username string, leaderboardType string) string {
 
 	var tbl table.Table
 	var sb strings.Builder
