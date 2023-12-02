@@ -499,7 +499,7 @@ func main() {
 		}
 	}(s)
 
-	fmt.Println("The bot is online.")
+	fmt.Println("GamblingBot is online.")
 
 	// This makes the bot continue to run a termination signal is sent
 	stop := make(chan os.Signal, 1)
