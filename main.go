@@ -133,31 +133,48 @@ var (
 			player := dba.FindPlayer(i.Member.User.Username)
 
 			// Checking if there is a game being played in this channel
-			// Looping through ongoing games
-			for _, game := range BlackjackGamesMap {
-				// Checking if the channel matches
-				if game.ChannelID == i.ChannelID {
-					// If the player of the ongoing game is the player sending the command
-					if game.Player == player {
-						_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-							Type: discordgo.InteractionResponseChannelMessageWithSource,
-							Data: &discordgo.InteractionResponseData{
-								Content: "We're already playing a game here!",
-							},
-						})
-					} else {
-						_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-							Type: discordgo.InteractionResponseChannelMessageWithSource,
-							Data: &discordgo.InteractionResponseData{
-								Content: fmt.Sprintf(
-									"I'm currently playing a game with %s in this channel. Please try another channel.",
-									game.Player.Username,
-								),
-							},
-						})
-					}
-					return
+			game := FindGameByChannelID(i.ChannelID)
+			// There is a game being played on this channel
+			if game != nil {
+
+				// If the player of the ongoing game is the player sending the command
+				if game.Player == player {
+					_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: "We're already playing a game here!",
+						},
+					})
+				} else {
+					_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: fmt.Sprintf(
+								"I'm currently playing a game with %s in this channel. Please try another channel.",
+								game.Player.Username,
+							),
+						},
+					})
 				}
+				return
+
+			}
+
+			// Getting the wager amount from the command option. It is validated to be an integer > 1 by the command settings
+			wager := int(optionMap["wager"].IntValue())
+
+			// Checking the player doesn't have enough chips
+			if player.Chips < wager {
+				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: fmt.Sprintf(
+							"You don't have enough chips for that wager! Your current balance is: %d",
+							player.Chips,
+						),
+					},
+				})
+				return
 			}
 
 			// Checking if the player starting the game is currently in a game already
@@ -177,9 +194,17 @@ var (
 							),
 						},
 					})
-					// subtracting the wager
-					player.Chips -= game.Wager
-					dba.UpdatePlayer(player)
+					startingChips := player.Chips
+					// subtracting the wager unless it would put them below 1 chip
+					if player.Chips-game.Wager >= 1 {
+						player.Chips -= game.Wager
+					} else {
+						player.Chips = 1
+					}
+					// only updating the player if their chips actually changed
+					if startingChips != player.Chips {
+						dba.UpdatePlayer(player)
+					}
 
 				} else {
 
@@ -204,9 +229,6 @@ var (
 					},
 				})
 			}
-
-			// Getting the wager amount from the command option. It is validated to be an integer > 1 by the command settings
-			wager := int(optionMap["wager"].IntValue())
 
 			// Getting the type of the channel the message was sent on
 			currentChannel, _ := s.Channel(i.ChannelID)
