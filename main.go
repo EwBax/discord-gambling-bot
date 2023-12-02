@@ -231,29 +231,221 @@ var (
 			// Creating the message to display to the player at the start of the game
 			message := newGame.GetDealerHand() + "\n\n"
 			message += newGame.RunPlayerTurn()
-			_, _ = s.ChannelMessageSend(newGame.ChannelID, message)
 
 			// If the player gets dealt a 21
 			if !newGame.IsPlayersTurn {
+				_, _ = s.ChannelMessageSend(newGame.ChannelID, message)
 				newGame.RunDealerTurn()
 				GameOver(newGame)
+			} else {
+				DisplayHitStandButtons(newGame.ChannelID, message)
 			}
+
+		},
+		"hit": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+			// find the game that is being played in this channel
+			game := FindGameByChannelID(i.ChannelID)
+
+			// if the game is nil we need to remove the buttons because the game is over now
+			if game == nil {
+				RemoveComponentsFromMessage(i.ChannelID, i.Message.ID, i.Message.Content)
+				return
+			}
+
+			// Checking that the message was from the correct player
+			username := i.Member.User.Username
+
+			// If the game it was from is over now, or it was from another user, discard the interaction
+			if username != game.Player.Username {
+				AcknowledgeInteraction(i)
+				return
+			}
+
+			// Removing the buttons from the message so they can't be used again.
+			RemoveComponentsFromMessage(i.ChannelID, i.Message.ID, i.Message.Content)
+
+			// If it was from the player
+			game.Hit(&game.PlayerHand)
+			message := "You chose to hit!\n"
+			message += game.RunPlayerTurn()
+
+			// If the player's turn is now over, which happens if they bust or get 21
+			if !game.IsPlayersTurn {
+				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: message,
+					},
+				})
+				// Dealer doesn't need to go if the player busted
+				if game.PlayerHand.Value() == 21 {
+					game.IsPlayersTurn = false
+					game.RunDealerTurn()
+				}
+				GameOver(*game)
+			} else {
+				// The player's turn is not over
+				RespondHitStandButtons(i, message)
+			}
+
+		},
+		"stand": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+			game := FindGameByChannelID(i.ChannelID)
+
+			// if the game is nil we need to remove the buttons because the game is over now
+			if game == nil {
+				RemoveComponentsFromMessage(i.ChannelID, i.Message.ID, i.Message.Content)
+				return
+			}
+
+			//Checking that the message was from the correct player
+			username := i.Member.User.Username
+
+			// If it was from another user, discard the interaction
+			if username != game.Player.Username {
+				AcknowledgeInteraction(i)
+				return
+			}
+
+			// Removing the buttons from the message so they can't be used again.
+			RemoveComponentsFromMessage(i.ChannelID, i.Message.ID, i.Message.Content)
+
+			// If it was from the player
+			game.IsPlayersTurn = false
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "\nYou stand! It is now the dealer's turn.",
+				},
+			})
+			game.RunDealerTurn()
+			GameOver(*game)
 
 		},
 	}
 )
 
-func init() {
-	// Adding a handler to the session to handle InteractionCreate events (slash command)
-	s.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		// Calling the command handler for the command that was sent, passing the session and the interaction
-		if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
-			h(s, i)
-		}
+// AcknowledgeInteraction sends an empty response to an interaction then deletes it. To acknowledge the interaction without
+// leaving a response
+func AcknowledgeInteraction(i *discordgo.InteractionCreate) {
+	// Empty response
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "",
+		},
+	})
+	// Deleting the response
+	_ = s.InteractionResponseDelete(i.Interaction)
+}
+
+// RemoveComponentsFromMessage edits a message to remove any components from it, leaving just the content.
+func RemoveComponentsFromMessage(channelID string, messageID string, content string) {
+	_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		Content:    &content,
+		ID:         messageID,
+		Channel:    channelID,
+		Components: []discordgo.MessageComponent{},
 	})
 
-	// Handles a message being created in discord
-	s.AddHandler(MessageReceived)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+// FindGameByChannelID is a helper function to find a game in the BlackjackGamesMap by channelID
+func FindGameByChannelID(channelID string) *Blackjack {
+
+	// find the game that is being played in this channel
+	var game *Blackjack
+	for _, game = range BlackjackGamesMap {
+		if game.ChannelID == channelID {
+			// return when we find the right game
+			return game
+		}
+	}
+
+	// Return nil because we did not find the game
+	return nil
+}
+
+// DisplayHitStandButtons takes a channelID and a message and sends the message with hit and stand buttons added.
+func DisplayHitStandButtons(channelID string, message string) {
+
+	_, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+		Content: message,
+		Components: []discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label:    "Hit",
+						Style:    discordgo.SuccessButton,
+						CustomID: "hit",
+					},
+					discordgo.Button{
+						Label:    "Stand",
+						Style:    discordgo.DangerButton,
+						CustomID: "stand",
+					},
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+// RespondHitStandButtons takes an interaction and responds to it with hit and stand buttons
+func RespondHitStandButtons(i *discordgo.InteractionCreate, message string) {
+
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: message,
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.Button{
+							Label:    "Hit",
+							Style:    discordgo.SuccessButton,
+							CustomID: "hit",
+						},
+						discordgo.Button{
+							Label:    "Stand",
+							Style:    discordgo.DangerButton,
+							CustomID: "stand",
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func init() {
+
+	// Adding a handler to the session to handle InteractionCreate events (slash command)
+	s.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		// Checking the interaction type
+		switch i.Type {
+		case discordgo.InteractionApplicationCommand:
+			// Calling the command handler for the command that was sent, passing the session and the interaction
+			if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
+				h(s, i)
+			}
+		case discordgo.InteractionMessageComponent:
+			if h, ok := commandHandlers[i.MessageComponentData().CustomID]; ok {
+				h(s, i)
+			}
+		}
+	})
 
 }
 
@@ -291,48 +483,6 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-stop
-
-}
-
-func MessageReceived(s *discordgo.Session, m *discordgo.MessageCreate) {
-
-	// Checks that the author was a user other than the bot
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-
-	// Checking that the message was from the player, it was sent in the correct channel, and it is their turn
-	username := m.Author.Username
-	game, ok := BlackjackGamesMap[username]
-	if (ok) && (m.ChannelID == game.ChannelID) && (game.IsPlayersTurn) {
-
-		if strings.ToLower(m.Content) == "!hit" {
-
-			game.Hit(&game.PlayerHand)
-			message := "You chose to hit!\n"
-			message += game.RunPlayerTurn()
-			_, _ = s.ChannelMessageSend(game.ChannelID, message)
-
-			// If the player's turn is now over, which happens when they bust or get 21
-			if !game.IsPlayersTurn {
-				// If their turn is over because they got 21, run the dealer's turn
-				// Dealer doesn't need to go if the player busted
-				if game.PlayerHand.Value() == 21 {
-					game.IsPlayersTurn = false
-					game.RunDealerTurn()
-				}
-				GameOver(*game)
-			}
-
-		} else if strings.ToLower(m.Content) == "!stand" {
-
-			game.IsPlayersTurn = false
-			_, _ = s.ChannelMessageSend(m.ChannelID, "\nYou stand! It is now the dealer's turn.")
-			game.RunDealerTurn()
-			GameOver(*game)
-
-		}
-	}
 
 }
 

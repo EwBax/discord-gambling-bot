@@ -167,9 +167,9 @@ func (b *Blackjack) RunPlayerTurn() string {
 
 	var message string
 
-	// If the player's hand is under 21, prompt them to hit or stand
+	// If the player's hand is under 21, show them their hand (they get prompted by buttons now in main.go)
 	if (*b).PlayerHand.Value() < 21 {
-		message = fmt.Sprintln((*b).PromptPlayer())
+		message = fmt.Sprintln((*b).GetPlayerHand())
 	} else if (*b).PlayerHand.Value() > 21 {
 		// Player must have busted
 		message = fmt.Sprintln((*b).PlayerBust())
@@ -179,16 +179,6 @@ func (b *Blackjack) RunPlayerTurn() string {
 		// To get to this point the player either busts or stands
 		(*b).IsPlayersTurn = false
 	}
-
-	return message
-
-}
-
-// PromptPlayer Prompts the player by displaying their hand then asking to hit or stand.
-func (b *Blackjack) PromptPlayer() string {
-
-	message := fmt.Sprintln((*b).GetPlayerHand())
-	message += "Enter !hit to hit, !stand to stand."
 
 	return message
 
